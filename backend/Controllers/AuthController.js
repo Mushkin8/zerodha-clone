@@ -1,123 +1,126 @@
-
-
-
-const User = require("../Models/UserModel");
-const { createSecretToken } = require("../util/SecretToken");
+const User = require("../model/UserModel");
+const { createSecretToken } = require("../config/SecretToken");
 const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
 
-/* ===========================
-   SIGNUP
-=========================== */
 
-module.exports.Signup = async (req, res) => {
+// ================= SIGNUP =================
+
+module.exports.Signup = async (req, res, next) => {
   try {
     const { email, password, username } = req.body;
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
-      return res.json({ message: "User already exists", success: false });
+      return res.json({ message: "User already exists" });
     }
 
     const user = await User.create({
       email,
       password,
       username,
-      createdAt: new Date(),
     });
 
     const token = createSecretToken(user._id);
 
-    // ✅ FIXED COOKIE
     res.cookie("token", token, {
+      withCredentials: true,
       httpOnly: true,
-      sameSite: "lax",
-      secure: false, // keep false for localhost
     });
 
-    return res.status(201).json({
-      message: "User signed up successfully",
+    res.status(201).json({
       success: true,
-      user: user._id,
+      message: "User signed up successfully",
+      user,
     });
 
   } catch (error) {
     console.error(error);
-    res.status(500).json({ success: false });
   }
 };
 
 
-/* ===========================
-   LOGIN
-=========================== */
+// ================= LOGIN =================
 
-module.exports.Login = async (req, res) => {
+module.exports.Login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
 
-    if (!email || !password) {
-      return res.json({
-        message: "All fields are required",
-        success: false,
-      });
-    }
-
     const user = await User.findOne({ email });
     if (!user) {
-      return res.json({
-        message: "Incorrect email or password",
-        success: false,
-      });
+      return res.json({ success:false, message: "Incorrect email or password" });
     }
 
     const auth = await bcrypt.compare(password, user.password);
     if (!auth) {
-      return res.json({
-        message: "Incorrect email or password",
-        success: false,
-      });
+      return res.json({ success:false, message: "Incorrect email or password" });
     }
 
     const token = createSecretToken(user._id);
 
-    // ✅ FIXED COOKIE
     res.cookie("token", token, {
+      withCredentials: true,
       httpOnly: true,
-      sameSite: "lax",
-      secure: false, // localhost only
     });
 
-    return res.status(200).json({
-      message: "User logged in successfully",
+    res.json({
       success: true,
-      user: user._id,
+      message: "Login successful",
+      user,
     });
 
   } catch (error) {
     console.error(error);
-    res.status(500).json({ success: false });
   }
 };
 
 
-/* ===========================
-   LOGOUT
-=========================== */
+// ================= GET CURRENT USER =================
 
-module.exports.Logout = async (req, res) => {
+module.exports.GetUser = async (req, res) => {
   try {
-    res.cookie("token", "", {
-      httpOnly: true,
-      expires: new Date(0),
-    });
+    const token = req.cookies.token;
 
-    return res.status(200).json({
-      message: "User logged out successfully",
+    if (!token) {
+      return res.json({
+        success: false,
+        message: "Not authenticated",
+      });
+    }
+
+    const decoded = jwt.verify(token, process.env.TOKEN_KEY);
+
+    const user = await User.findById(decoded.id).select("-password");
+
+    if (!user) {
+      return res.json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    res.json({
       success: true,
+      user,
     });
 
   } catch (error) {
-    console.log(error);
-    res.status(500).json({ success: false });
+    console.error(error);
+    res.json({
+      success: false,
+      message: "Invalid token",
+    });
   }
+};
+
+
+// ================= LOGOUT =================
+
+module.exports.Logout = (req, res) => {
+  res.clearCookie("token");
+
+  res.json({
+    success: true,
+    message: "Logged out successfully",
+  });
 };
